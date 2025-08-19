@@ -1,3 +1,4 @@
+<!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
 <meta charset="UTF-8" />
@@ -192,9 +193,14 @@
   
   /* Layout */
   .layout {
-  width: 100vw !important;   /* 強制佔滿視窗寬度 */
-  max-width: 100vw !important;
-  margin: 0 !important;
+    display: grid;
+    grid-template-columns: 300px 1fr;
+    gap: 24px;
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 24px;
+    position: relative;
+    z-index: 1;
   }
   
   @media (max-width: 980px) {
@@ -2337,5 +2343,69 @@ document.addEventListener('DOMContentLoaded', function() {
   console.log('🛡️ GWall 4.0 網頁已載入完成');
 });
 </script>
+
+<!-- 回到頂部按鈕 -->
+<button id="topBtn">↑</button>
+
+<script>
+// 取得按鈕
+const topBtn = document.getElementById("topBtn");
+
+// 監聽滾動事件，超過 200px 才顯示
+window.addEventListener("scroll", () => {
+  if (window.scrollY > 200) {
+    topBtn.classList.add("show");
+  } else {
+    topBtn.classList.remove("show");
+  }
+});
+
+// 點擊回到頂部
+topBtn.addEventListener("click", () => {
+  window.scrollTo({
+    top: 0,
+    behavior: "smooth"
+  });
+});
+</script>
+
+<style>
+/* 回到頂部樣式 */
+#topBtn {
+  position: fixed !important;
+  right: 24px;
+  bottom: 24px;
+  z-index: 9999;
+  border: none;
+  border-radius: 50%;
+  width: 52px;
+  height: 52px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  background: linear-gradient(135deg, #00d4ff, #7c3aed);
+  color: #fff;
+  font-size: 18px;
+  font-weight: bold;
+  opacity: 0;
+  pointer-events: none;
+  transition: all 0.3s ease;
+  box-shadow: 0 0 25px rgba(0,212,255,0.4);
+}
+
+/* 顯示狀態 */
+#topBtn.show {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* hover 效果 */
+#topBtn:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 0 35px rgba(0,212,255,0.6), 0 8px 25px rgba(0,0,0,0.3);
+}
+</style>
+
+
 </body>
 </html>
