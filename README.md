@@ -192,14 +192,9 @@
   
   /* Layout */
   .layout {
-    display: grid;
-    grid-template-columns: 300px 1fr;
-    gap: 24px;
-    max-width: 100%;
-    margin: 0; ;
-    padding: 24px;
-    position: relative;
-    z-index: 1;
+  width: 100vw !important;   /* 強制佔滿視窗寬度 */
+  max-width: 100vw !important;
+  margin: 0 !important;
   }
   
   @media (max-width: 980px) {
