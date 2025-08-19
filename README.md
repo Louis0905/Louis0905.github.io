@@ -195,7 +195,7 @@
     display: grid;
     grid-template-columns: 300px 1fr;
     gap: 24px;
-    max-width: 2500px;
+    max-width: 3000px;
     margin: 0 auto;
     padding: 24px;
     position: relative;
