@@ -1562,7 +1562,590 @@
             "在法規遵循方面，GWall 4.0 提供的自動化合規檢查和報告功能，讓我們順利通過了金管會的資安檢查。零信任架構的建置也為我們的數位轉型提供了堅實的安全基礎。"
           </div>
         </details>
+<head>
+  <meta charset="utf-8" />
+  <title>雙向VPN連線動態地圖</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css" />
+  <style>
+    body { 
+      margin: 0; 
+      background: #000; 
+      color: #fff;
+      font-family: 'Arial', sans-serif;
+    }
+    #map { 
+      width: 100%; 
+      height: 600px;
+      box-shadow: 0 0 20px rgba(0, 255, 255, 0.3);
+    }
+    h2 {
+      text-align: center;
+      margin: 20px 0;
+      color: #00ffff;
+      text-shadow: 0 0 10px rgba(0, 255, 255, 0.8);
+      font-size: 24px;
+    }
+    .pulse {
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.5; transform: scale(1.2); }
+      100% { opacity: 1; transform: scale(1); }
+    }
+    .loading {
+      text-align: center;
+      padding: 50px;
+      color: #00ffff;
+    }
+    .dark-tiles {
+      filter: invert(1) hue-rotate(180deg) brightness(0.3) contrast(1.2);
+    }
+    .leaflet-container {
+      background-color: #1a1a1a !important;
+    }
+    .status-panel {
+      position: absolute;
+      bottom: 20px;
+      left: 20px;
+      background: rgba(0, 0, 0, 0.8);
+      padding: 10px;
+      border-radius: 5px;
+      border: 1px solid #00ffff;
+      font-size: 12px;
+      color: #00ffff;
+      z-index: 1000;
+    }
+    .zoom-info {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      background: rgba(0, 0, 0, 0.8);
+      padding: 10px;
+      border-radius: 5px;
+      border: 1px solid #00ffff;
+      font-size: 12px;
+      color: #00ffff;
+      z-index: 1000;
+    }
+  </style>
+</head>
+<body>
+  <h2>實例:  佳集貿易與中國VPN連線狀況</h2>
+  <div id="map">
+    <div class="loading">正在加載地圖...</div>
+  </div>
+  <div class="status-panel">
+    <div>連線狀態：<span id="connection-status">待命中</span></div>
+    <div>活躍連線：<span id="active-connections">0</span></div>
+  </div>
+  <div class="zoom-info">
+    <div>模式：<span id="zoom-mode">總覽</span></div>
+    <div>點擊城市放大 | 點擊空白區域回到總覽</div>
+  </div>
+  
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script>
+    let mapInstance = null;
+    let activeConnections = 0;
+    let isZoomedIn = false;
+    let currentZoomedCity = null;
+    let originalView = { center: [27.5, 115], zoom: 5 };
+    let cityMarkers = [];
+    let taipeiMarker = null;
+    
+    function updateStatus(status) {
+      document.getElementById('connection-status').textContent = status;
+      document.getElementById('active-connections').textContent = activeConnections;
+    }
+    
+    function updateZoomMode(mode) {
+      document.getElementById('zoom-mode').textContent = mode;
+    }
+    
+    function initializeMap() {
+      try {
+        if (mapInstance) {
+          return;
+        }
+        
+        const mapContainer = document.getElementById('map');
+        mapContainer.innerHTML = '';
+        
+        if (!mapContainer._leaflet_id) {
+          mapInstance = L.map('map').setView(originalView.center, originalView.zoom);
+        } else {
+          mapContainer.innerHTML = '';
+          mapInstance = L.map('map').setView(originalView.center, originalView.zoom);
+        }
+        
+        const tileLayerOptions = {
+          attribution: '&copy; OpenStreetMap contributors',
+          maxZoom: 18,
+          minZoom: 2
+        };
+
+        const darkTileSources = [
+          'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+          'https://cartodb-basemaps-{s}.global.ssl.fastly.net/dark_all/{z}/{x}/{y}.png',
+          'https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png'
+        ];
+
+        const primaryTileLayer = L.tileLayer(darkTileSources[0], tileLayerOptions);
+        
+        primaryTileLayer.on('tileerror', function() {
+          mapInstance.removeLayer(primaryTileLayer);
+          const backupTileLayer = L.tileLayer(darkTileSources[1], tileLayerOptions);
+          backupTileLayer.on('tileerror', function() {
+            mapInstance.removeLayer(backupTileLayer);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+              ...tileLayerOptions,
+              className: 'dark-tiles'
+            }).addTo(mapInstance);
+          });
+          backupTileLayer.addTo(mapInstance);
+        });
+        
+        primaryTileLayer.addTo(mapInstance);
+
+        // Define Taipei coordinates and bounds once
+        const taipei = [25.033, 121.565];
+        const taipeiBounds = [
+          [24.8, 121.3], [24.8, 121.8], [25.3, 121.8], [25.3, 121.3], [24.8, 121.3]
+        ];
+
+        const cities = [
+          { 
+            name: '上海', 
+            coords: [31.2304, 121.4737],
+            bounds: [
+              [31.0, 121.2], [31.0, 121.8], [31.5, 121.8], [31.5, 121.2], [31.0, 121.2]
+            ]
+          },
+          { 
+            name: '台山', 
+            coords: [22.25, 112.7833],
+            bounds: [
+              [22.0, 112.5], [22.0, 113.1], [22.5, 113.1], [22.5, 112.5], [22.0, 112.5]
+            ]
+          },
+          { 
+            name: '揚州', 
+            coords: [32.3936, 119.4127],
+            bounds: [
+              [32.1, 119.1], [32.1, 119.7], [32.7, 119.7], [32.7, 119.1], [32.1, 119.1]
+            ]
+          },
+          { 
+            name: '廣州', 
+            coords: [23.1291, 113.2644],
+            bounds: [
+              [22.9, 113.0], [22.9, 113.5], [23.4, 113.5], [23.4, 113.0], [22.9, 113.0]
+            ]
+          },
+          { 
+            name: '福州', 
+            coords: [26.0745, 119.2965],
+            bounds: [
+              [25.8, 119.0], [25.8, 119.6], [26.3, 119.6], [26.3, 119.0], [25.8, 119.0]
+            ]
+          }
+        ];
+
+        // 創建台北標記 - 帶有明顯邊框
+        const taipeiIcon = L.divIcon({
+          className: 'custom-marker',
+          html: '<div style="background: #ff3333; width: 14px; height: 14px; border-radius: 50%; border: 4px solid #ffffff; box-shadow: 0 0 15px #ff3333, 0 0 5px #ffffff, inset 0 0 5px rgba(255,255,255,0.5); animation: pulse 2s infinite; cursor: pointer;"></div>',
+          iconSize: [22, 22],
+          iconAnchor: [11, 11]
+        });
+
+        // 創建城市標記 - 帶有明顯邊框
+        const cityIcon = L.divIcon({
+          className: 'custom-marker',
+          html: '<div style="background: linear-gradient(45deg, #00ff88, #00ccff); width: 12px; height: 12px; border-radius: 50%; border: 3px solid #ffffff; box-shadow: 0 0 10px #00ff88, 0 0 3px #ffffff; cursor: pointer;"></div>',
+          iconSize: [18, 18],
+          iconAnchor: [9, 9]
+        });
+
+        // 創建台北區域邊界
+        const taipeiAreaBorder = L.polygon(taipeiBounds, {
+          color: '#ff3333',
+          weight: 2,
+          opacity: 0.7,
+          fillColor: '#ff3333',
+          fillOpacity: 0.1,
+          dashArray: '5, 5'
+        }).addTo(mapInstance);
+
+        // 創建台北標記
+        taipeiMarker = L.marker(taipei, { icon: taipeiIcon })
+          .addTo(mapInstance)
+          .bindPopup('<b style="color: #ff3333;">台北 VPN 伺服器</b><br/>主要連線節點</b><br/>WAN:211.22.98.208</b><br/>LAN:192.168.10.252</b><br/></b><br/>OpenVPN_Tunnel:</b><br/>福州:172.16.201.1/24</b><br/>上海:172.16.105.1/24</b><br/>台山:10.10.101.1/24</b><br/>廣州:172.16.103.1/24');
+
+        // 為台北標記添加點擊事件
+        taipeiMarker.on('click', function(e) {
+          e.originalEvent.stopPropagation();
+          zoomToCity('台北', taipei);
+        });
+
+        // 創建城市標記和區域邊界
+        cityMarkers = [];
+        cities.forEach(city => {
+          // 創建城市區域邊界
+          const cityBorder = L.polygon(city.bounds, {
+            color: '#00ff88',
+            weight: 2,
+            opacity: 0.6,
+            fillColor: '#00ff88',
+            fillOpacity: 0.05,
+            dashArray: '3, 3'
+          }).addTo(mapInstance);
+
+          const marker = L.marker(city.coords, { icon: cityIcon })
+            .addTo(mapInstance)
+            .bindPopup(`<b style="color: #00ff88;">${city.name} 節點</b><br/>VPN 連線目標<br/`);
+          
+          // 為每個城市標記添加點擊事件
+          marker.on('click', function(e) {
+            e.originalEvent.stopPropagation();
+            zoomToCity(city.name, city.coords);
+          });
+          
+          cityMarkers.push(marker);
+        });
+
+        // 放大到指定城市
+        function zoomToCity(cityName, coords) {
+          if (isZoomedIn) return;
+          
+          isZoomedIn = true;
+          currentZoomedCity = cityName;
+          updateZoomMode(`${cityName} 區域`);
+          
+          // 添加放大動畫效果
+          const zoomCircle = L.circleMarker(coords, {
+            color: '#00ffff',
+            fillColor: 'transparent',
+            radius: 5,
+            weight: 2,
+            opacity: 0.8
+          }).addTo(mapInstance);
+          
+          let zoomRadius = 5;
+          const zoomAnimation = setInterval(() => {
+            zoomRadius += 3;
+            zoomCircle.setRadius(zoomRadius);
+            zoomCircle.setStyle({ 
+              opacity: Math.max(0, 0.8 - (zoomRadius - 5) / 30)
+            });
+            
+            if (zoomRadius > 35) {
+              clearInterval(zoomAnimation);
+              mapInstance.removeLayer(zoomCircle);
+            }
+          }, 50);
+          
+          // 平滑放大到城市
+          mapInstance.flyTo(coords, 10, {
+            duration: 1.5,
+            easeLinearity: 0.25
+          });
+        }
+
+        // 回到總覽視圖
+        function returnToOverview() {
+          if (!isZoomedIn) return;
+          
+          isZoomedIn = false;
+          currentZoomedCity = null;
+          updateZoomMode('總覽');
+          
+          // 平滑回到原始視圖
+          mapInstance.flyTo(originalView.center, originalView.zoom, {
+            duration: 1.5,
+            easeLinearity: 0.25
+          });
+        }
+
+        // 生成曲線路徑的函數
+        function generateCurvedPath(start, end, intensity = 0.3) {
+          const midLat = (start[0] + end[0]) / 2;
+          const midLng = (start[1] + end[1]) / 2;
+          
+          // 計算垂直偏移
+          const latDiff = end[0] - start[0];
+          const lngDiff = end[1] - start[1];
+          const distance = Math.sqrt(latDiff * latDiff + lngDiff * lngDiff);
+          
+          // 隨機化曲線方向和強度
+          const randomFactor = (Math.random() - 0.5) * 2;
+          const curvature = distance * intensity * randomFactor;
+          
+          // 計算控制點
+          const controlLat = midLat + curvature * Math.sin(Math.atan2(lngDiff, latDiff));
+          const controlLng = midLng - curvature * Math.cos(Math.atan2(lngDiff, latDiff));
+          
+          // 生成多個點形成平滑曲線
+          const points = [];
+          for (let t = 0; t <= 1; t += 0.05) {
+            const lat = Math.pow(1 - t, 2) * start[0] + 2 * (1 - t) * t * controlLat + Math.pow(t, 2) * end[0];
+            const lng = Math.pow(1 - t, 2) * start[1] + 2 * (1 - t) * t * controlLng + Math.pow(t, 2) * end[1];
+            points.push([lat, lng]);
+          }
+          
+          return points;
+        }
+
+        // 創建有方向性的VPN連線動畫
+        function createBidirectionalVPNConnection(start, end, startName, endName) {
+          activeConnections++;
+          updateStatus(`建立連線: ${startName} ↔ ${endName}`);
+          
+          // 判斷方向
+          const isTaipeiStart = (start[0] === 25.033 && start[1] === 121.565);
+          
+          // 在放大模式下調整連線線條的權重和透明度
+          const lineWeight = isZoomedIn ? 3 : 2;
+          const lineOpacity = isZoomedIn ? 0.9 : 0.8;
+          
+          // 生成兩條不同的曲線路徑，避免重疊
+          const pathAtoB = generateCurvedPath(start, end, isTaipeiStart ? 0.3 : -0.3);
+          const pathBtoA = generateCurvedPath(end, start, isTaipeiStart ? -0.4 : 0.4);
+          
+          // 創建連線線條 - 放大時增強顯示
+          const connectionAtoB = L.polyline([], {
+            color: isTaipeiStart ? '#00ffff' : '#ff3333',
+            weight: lineWeight,
+            opacity: lineOpacity
+          }).addTo(mapInstance);
+          
+          const connectionBtoA = L.polyline([], {
+            color: isTaipeiStart ? '#ff3333' : '#00ffff',
+            weight: lineWeight,
+            opacity: lineOpacity
+          }).addTo(mapInstance);
+
+          // 數據流動線條 - 放大時增強顯示
+          const dataFlowAtoB = L.polyline([], {
+            color: isTaipeiStart ? '#00ff88' : '#ff6666',
+            weight: isZoomedIn ? 2 : 1,
+            opacity: isZoomedIn ? 0.8 : 0.6,
+            dashArray: isZoomedIn ? '6, 16' : '4, 12'
+          }).addTo(mapInstance);
+          
+          const dataFlowBtoA = L.polyline([], {
+            color: isTaipeiStart ? '#ff6666' : '#00ff88',
+            weight: isZoomedIn ? 2 : 1,
+            opacity: isZoomedIn ? 0.8 : 0.6,
+            dashArray: isZoomedIn ? '6, 16' : '4, 12'
+          }).addTo(mapInstance);
+
+          // 方向性連線建立動畫
+          let progressAtoB = 0;
+          let progressBtoA = 0;
+          
+          const connectionAnimation = setInterval(() => {
+            // A to B 連線延伸
+            if (progressAtoB < pathAtoB.length) {
+              progressAtoB += 2;
+              const currentPathAtoB = pathAtoB.slice(0, Math.min(progressAtoB, pathAtoB.length));
+              connectionAtoB.setLatLngs(currentPathAtoB);
+              dataFlowAtoB.setLatLngs(currentPathAtoB);
+            }
+            
+            // B to A 連線延伸 (稍微延遲)
+            if (progressAtoB > 5 && progressBtoA < pathBtoA.length) {
+              progressBtoA += 2;
+              const currentPathBtoA = pathBtoA.slice(0, Math.min(progressBtoA, pathBtoA.length));
+              connectionBtoA.setLatLngs(currentPathBtoA);
+              dataFlowBtoA.setLatLngs(currentPathBtoA);
+            }
+            
+            if (progressAtoB >= pathAtoB.length && progressBtoA >= pathBtoA.length) {
+              clearInterval(connectionAnimation);
+              
+              // 連線成功效果 - 放大時效果更明顯
+              [start, end].forEach((pos, index) => {
+                const isStartTaipei = (start[0] === 25.033 && start[1] === 121.565);
+                const successPulse = L.circleMarker(pos, {
+                  color: (index === 0 && isStartTaipei) || (index === 1 && !isStartTaipei) ? '#00ff88' : '#ff6666',
+                  fillColor: (index === 0 && isStartTaipei) || (index === 1 && !isStartTaipei) ? '#00ff88' : '#ff6666',
+                  fillOpacity: isZoomedIn ? 0.6 : 0.4,
+                  radius: isZoomedIn ? 8 : 6,
+                  weight: isZoomedIn ? 3 : 2
+                }).addTo(mapInstance);
+
+                let pulseRadius = isZoomedIn ? 8 : 6;
+                const maxRadius = isZoomedIn ? 30 : 20;
+                const pulseAnimation = setInterval(() => {
+                  pulseRadius += isZoomedIn ? 1.2 : 0.8;
+                  successPulse.setRadius(pulseRadius);
+                  successPulse.setStyle({ 
+                    fillOpacity: Math.max(0, (isZoomedIn ? 0.6 : 0.4) - (pulseRadius - (isZoomedIn ? 8 : 6)) / (isZoomedIn ? 35 : 25)),
+                    opacity: Math.max(0, (isZoomedIn ? 1.0 : 0.8) - (pulseRadius - (isZoomedIn ? 8 : 6)) / (isZoomedIn ? 25 : 20))
+                  });
+                  
+                  if (pulseRadius > maxRadius) {
+                    clearInterval(pulseAnimation);
+                    mapInstance.removeLayer(successPulse);
+                  }
+                }, 60);
+              });
+            }
+          }, 50);
+
+          // 數據流動動畫
+          setTimeout(() => {
+            let dashOffsetAtoB = 0;
+            let dashOffsetBtoA = 0;
+            
+            const flowAnimation = setInterval(() => {
+              // 根據方向設定數據流動方向，放大時流動更快
+              const speed = isZoomedIn ? 4 : 3;
+              if (isTaipeiStart) {
+                dashOffsetAtoB -= speed; // 台北到其他城市：正向流動
+                dashOffsetBtoA += speed - 0.5; // 其他城市到台北：反向流動
+              } else {
+                dashOffsetAtoB += speed; // 其他城市到台北：反向流動
+                dashOffsetBtoA -= speed - 0.5; // 台北到其他城市：正向流動
+              }
+              
+              if (dataFlowAtoB.getElement()) {
+                dataFlowAtoB.getElement().style.strokeDashoffset = dashOffsetAtoB;
+              }
+              if (dataFlowBtoA.getElement()) {
+                dataFlowBtoA.getElement().style.strokeDashoffset = dashOffsetBtoA;
+              }
+            }, 100);
+            
+            // 隨機持續時間 (4-8秒)
+            const duration = 4000 + Math.random() * 4000;
+            setTimeout(() => {
+              clearInterval(flowAnimation);
+              activeConnections--;
+              updateStatus('監控中');
+              
+              // 連線斷開動畫
+              let disconnectOpacity = lineOpacity;
+              const disconnectAnimation = setInterval(() => {
+                disconnectOpacity -= 0.06;
+                [connectionAtoB, connectionBtoA, dataFlowAtoB, dataFlowBtoA].forEach(layer => {
+                  layer.setStyle({ opacity: Math.max(disconnectOpacity, 0) });
+                });
+                
+                if (disconnectOpacity <= 0) {
+                  clearInterval(disconnectAnimation);
+                  [connectionAtoB, connectionBtoA, dataFlowAtoB, dataFlowBtoA].forEach(layer => {
+                    mapInstance.removeLayer(layer);
+                  });
+                }
+              }, 100);
+            }, duration);
+            
+          }, 1000);
+        }
+
+        // 主連線邏輯 - 只有台北與其他城市連線
+        let connectionIndex = 0;
+        function establishTaipeiConnection() {
+          // 隨機選擇連線方向和城市
+          const isFromTaipei = Math.random() > 0.4; // 60%機率從台北發起
+          const targetCity = cities[connectionIndex % cities.length];
+          
+          if (isFromTaipei) {
+            createBidirectionalVPNConnection(taipei, targetCity.coords, '台北', targetCity.name);
+          } else {
+            createBidirectionalVPNConnection(targetCity.coords, taipei, targetCity.name, '台北');
+          }
+          
+          connectionIndex++;
+        }
+
+        // 地圖點擊事件 - 點擊空白區域回到總覽
+        mapInstance.on('click', function(e) {
+          if (isZoomedIn) {
+            returnToOverview();
+          } else {
+            // 原有的波紋效果
+            const ripple = L.circleMarker(e.latlng, {
+              color: '#ffffff',
+              fillColor: '#ffffff',
+              fillOpacity: 0.6,
+              radius: 0
+            }).addTo(mapInstance);
+
+            let radius = 0;
+            const rippleAnimation = setInterval(() => {
+              radius += 2;
+              ripple.setRadius(radius);
+              ripple.setStyle({ 
+                fillOpacity: Math.max(0, 0.6 - (radius / 50)),
+                opacity: Math.max(0, 1 - (radius / 50))
+              });
+              
+              if (radius > 50) {
+                clearInterval(rippleAnimation);
+                mapInstance.removeLayer(ripple);
+              }
+            }, 25);
+          }
+        });
+
+        mapInstance.whenReady(function() {
+          setTimeout(() => {
+            updateStatus('VPN系統啟動');
+            updateZoomMode('總覽');
+            
+            // 立即建立第一個連線
+            establishTaipeiConnection();
+            
+            // 定期建立台北連線 (每4秒)
+            setInterval(establishTaipeiConnection, 4000);
+            
+            // 隨機額外台北連線
+            setInterval(() => {
+              if (Math.random() > 0.5) {
+                establishTaipeiConnection();
+              }
+            }, 6000);
+            
+          }, 1000);
+        });
+
+      } catch (error) {
+        console.error('地圖初始化錯誤:', error);
+        document.getElementById('map').innerHTML = '<div class="loading">地圖加載失敗，請刷新頁面重試</div>';
+      }
+    }
+
+    let initAttempted = false;
+    
+    function checkAndInit() {
+      if (initAttempted) return;
+      
+      if (typeof L !== 'undefined') {
+        initAttempted = true;
+        initializeMap();
+      } else {
+        setTimeout(checkAndInit, 100);
+      }
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', checkAndInit);
+    } else {
+      checkAndInit();
+    }
+
+    window.addEventListener('load', function() {
+      setTimeout(checkAndInit, 500);
+    });
+  </script>
+</body>
       </section>
+
 
       <!-- 9 常見問題 -->
       <section id="faq" data-title="常見問題">
